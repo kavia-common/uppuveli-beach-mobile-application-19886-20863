@@ -58,3 +58,10 @@ Mobile API endpoints (JWT protected)
 - POST /api/v1/referrals
 - GET /api/v1/notifications
 - POST /api/v1/chat
+
+Admin API endpoints (admin OAuth JWT required: scope contains "admin")
+- GET    /api/v1/bookings                : List bookings (limit, offset)
+- POST   /api/v1/bookings                : Create booking (userId, roomId, checkIn, checkOut, status?)
+- GET    /api/v1/bookings/{id}           : Get booking by ID
+- PUT    /api/v1/bookings/{id}           : Update booking fields
+- DELETE /api/v1/bookings/{id}           : Delete booking

@@ -25,6 +25,7 @@ app = FastAPI(
         {"name": "loyalty", "description": "Loyalty and referrals"},
         {"name": "notifications", "description": "Notifications and messaging"},
         {"name": "chat", "description": "Chat and chatbot"},
+        {"name": "admin", "description": "Admin operations for Web Admin Panel"},
     ],
 )
 
@@ -55,6 +56,7 @@ async def _on_shutdown() -> None:
 from src.api.routers import auth  # type: ignore
 from src.api.routers import admin_oauth  # type: ignore
 from src.api.routers import rooms, bookings, payments, loyalty, referrals, notifications, chat  # type: ignore
+from src.api.routers import admin_bookings  # type: ignore
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 # Admin OAuth2 mock flow (authorization, token) and admin profile endpoint
@@ -63,6 +65,8 @@ app.include_router(admin_oauth.router, prefix="/api/v1", tags=["auth"])
 # Mobile endpoints
 app.include_router(rooms.router, prefix="/api/v1/rooms", tags=["bookings"])
 app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["bookings"])
+# Admin endpoints (require admin OAuth token scope='admin'); same resource path space for CRUD by admins
+app.include_router(admin_bookings.router, prefix="/api/v1/bookings", tags=["admin"])
 app.include_router(payments.router, prefix="/api/v1/payments", tags=["payments"])
 app.include_router(loyalty.router, prefix="/api/v1/loyalty", tags=["loyalty"])
 app.include_router(referrals.router, prefix="/api/v1/referrals", tags=["loyalty"])
