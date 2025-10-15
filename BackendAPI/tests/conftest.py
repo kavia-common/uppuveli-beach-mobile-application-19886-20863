@@ -4,38 +4,47 @@ from typing import Generator
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session, create_engine
+from sqlalchemy.pool import StaticPool
 
 # Ensure deterministic testing environment
 os.environ.setdefault("TESTING", "true")
 os.environ.setdefault("SEED_DEMO", "false")
 os.environ.setdefault("JWT_SECRET", "test-secret-key")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
-os.environ.setdefault("DATABASE_URL", "sqlite://")  # not used directly since we override engine
+# Not used directly by the app during tests due to dependency override,
+# but kept for compatibility when code references settings.DATABASE_URL.
+os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 from app.main import create_app  # noqa: E402
 from app.db import get_session as prod_get_session  # noqa: E402
 from app.core import security as security_module  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 
-# Use an in-memory SQLite database for tests
+# Use a shared in-memory SQLite database across connections with StaticPool.
+# Note: "sqlite://" (2 slashes) with StaticPool ensures a single in-memory
+# database reused for all connections in the same process.
 TEST_DATABASE_URL = "sqlite://"
 
 # Create a dedicated test engine (check_same_thread False for TestClient threads)
-test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+test_engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+    echo=False,
+)
 
 # Import models so that SQLModel metadata is populated before create_all on test engine
 from app.models.user import User  # noqa: F401,E402
 from app.models.booking import Booking  # noqa: F401,E402
 
 
-def create_db():
-    """Create all tables in the in-memory database."""
-    # Ensure models are imported before creating tables (imports above)
+def create_db() -> None:
+    """Create all tables in the shared in-memory database."""
     SQLModel.metadata.create_all(test_engine)
 
 
 def get_test_session() -> Generator[Session, None, None]:
-    """FastAPI dependency that yields a Session bound to the in-memory test engine."""
+    """FastAPI dependency that yields a Session bound to the shared in-memory test engine."""
     session = Session(test_engine)
     try:
         yield session
@@ -46,6 +55,7 @@ def get_test_session() -> Generator[Session, None, None]:
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_db() -> Generator[None, None, None]:
     """Create tables once per test session."""
+    # Ensure models are imported and then create all tables on the shared engine.
     create_db()
     yield
 
@@ -54,7 +64,7 @@ def _prepare_db() -> Generator[None, None, None]:
 def app():
     """
     Build a fresh FastAPI app per test function with dependency overrides:
-    - Override get_session to use in-memory session
+    - Override get_session to use shared in-memory session bound to StaticPool engine
     - Freeze JWT settings via env already set above
     """
     # Clear cached settings to pick up env overrides within tests if needed
@@ -71,7 +81,7 @@ def app():
     # Double-ensure tables exist for this app instance (safety)
     SQLModel.metadata.create_all(test_engine)
 
-    # Optionally, ensure oauth2 tokenUrl remains consistent
+    # Ensure oauth2 tokenUrl remains consistent
     security_module.oauth2_scheme.model.tokenUrl = "/auth/login"
 
     return application
