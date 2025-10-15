@@ -44,7 +44,7 @@ class Settings(BaseModel):
     @classmethod
     def parse_cors_origins(cls, v):
         # Accept already-parsed list or comma-separated string
-        if isinstance(v, list):
+        if isinstance(v, list) and v:
             return v
         raw = os.getenv("CORS_ORIGINS", "")
         if not raw:
