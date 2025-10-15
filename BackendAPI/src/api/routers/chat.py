@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from src.api.db import execute, fetch_one
 from src.api.security import decode_access_token, oauth2_scheme
+from src.api.chat.engine import generate_reply  # stubbed engine
 
 router = APIRouter()
 
@@ -77,4 +78,8 @@ async def send_message(payload: ChatMessageRequest, token: str = Depends(oauth2_
         user_id,
     )
     assert row is not None
+
+    # Generate a simple reply (not persisted, stub only). Future enhancement could push via notifications or websockets.
+    _ = generate_reply(payload.message)
+
     return _row_to_chat_message(row)

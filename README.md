@@ -45,6 +45,18 @@ Configuration
 - See BackendAPI/.env.example for all supported variables:
   DATABASE_URL, JWT_SECRET, JWT_EXPIRES_MIN, CORS_ORIGINS, ADMIN_OAUTH_CLIENTS, STRIPE_KEY, PAYPAL_KEY, FCM_KEY, APP_HOST, APP_PORT, APP_ENV.
 
+Stubs and providers
+- Payments: src/api/payment_providers provides stub implementations for Stripe and PayPal.
+  The payments router delegates to get_payment_provider(method) for "stripe" and "paypal".
+  "wallet" is handled inline as an in-app method. No real gateway calls are made.
+- Notifications: src/api/notifications/providers exposes send_push_notification, send_email, send_sms stubs.
+- Chat: src/api/chat/engine implements a simple generate_reply that returns canned responses or echoes back.
+  The chat router currently persists the user's message; a reply is generated but not yet returned/stored.
+
+Environment placeholders
+- STRIPE_KEY, PAYPAL_KEY, FCM_KEY are optional for stub usage; real integrations will require valid credentials.
+  Do NOT hardcode secrets in code. Provide them in BackendAPI/.env for non-stub usage.
+
 OpenAPI
 - Generate OpenAPI schema file:
   cd BackendAPI && python -m src.api.generate_openapi

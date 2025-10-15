@@ -24,9 +24,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.config import get_settings
 from src.api.db import execute, fetch_one
 from src.api.security import decode_access_token, oauth2_scheme
+from src.api.payment_providers.base import get_payment_provider, ChargeResult
 
 router = APIRouter()
 
@@ -68,26 +68,25 @@ async def _require_user(token: str) -> int:
 
 async def _stub_charge_provider(method: str, amount: float) -> str:
     """Stub payment provider integration; returns a provider reference or raises HTTP 400."""
-    settings = get_settings()
-    method_l = method.lower()
+    method_l = (method or "").lower()
     if method_l not in ("stripe", "paypal", "wallet"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported payment method")
-
-    # In a real implementation, use settings.stripe_key / paypal_key here.
-    # For stub, accept payment if amount > 0 and a key is set (except wallet which doesn't need keys).
     if amount <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Amount must be positive")
 
-    if method_l == "stripe" and not settings.stripe_key:
-        # Allow in dev by returning a stub reference but note missing key in logs.
-        return f"stripe_stub_{int(datetime.now(timezone.utc).timestamp())}"
-    if method_l == "paypal" and not settings.paypal_key:
-        return f"paypal_stub_{int(datetime.now(timezone.utc).timestamp())}"
+    # Wallet is handled inline without external provider
     if method_l == "wallet":
         return f"wallet_tx_{int(datetime.now(timezone.utc).timestamp())}"
 
-    # Keys exist; still return a stub reference for now
-    return f"{method_l}_tx_{int(datetime.now(timezone.utc).timestamp())}"
+    # Use provider stubs for stripe/paypal
+    try:
+        provider = get_payment_provider(method_l)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported payment method")
+    result: ChargeResult = provider.charge(amount)
+    if not result.ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.message)
+    return result.reference
 
 
 # PUBLIC_INTERFACE

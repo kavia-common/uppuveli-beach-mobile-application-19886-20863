@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from src.api.db import fetch_all
 from src.api.security import decode_access_token, oauth2_scheme
+# Stubs available for future send operations:
+# from src.api.notifications.providers import send_push_notification, send_email, send_sms
 
 router = APIRouter()
 
