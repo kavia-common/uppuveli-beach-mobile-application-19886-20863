@@ -53,8 +53,11 @@ async def _on_shutdown() -> None:
 
 # Routers
 from src.api.routers import auth  # type: ignore
+from src.api.routers import admin_oauth  # type: ignore
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+# Admin OAuth2 mock flow (authorization, token) and admin profile endpoint
+app.include_router(admin_oauth.router, prefix="/api/v1", tags=["auth"])
 # Future routers will be included similarly:
 # from src.api.routers import bookings, payments, loyalty, notifications, chat
 # app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["bookings"])

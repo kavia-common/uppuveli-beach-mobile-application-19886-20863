@@ -9,6 +9,22 @@ BackendAPI bootstrap:
   - GET / -> { "message": "Healthy" }
   - GET /api/v1/health -> detailed status payload
 
+Admin OAuth2 (Mock) for Web Admin Panel:
+- Endpoints (mounted under /api/v1):
+  - GET /oauth/authorize
+    - Query: response_type=code, client_id, redirect_uri, scope=admin (default), state (optional)
+    - Validates client_id and redirect_uri against ADMIN_OAUTH_CLIENTS.
+    - Redirects to redirect_uri with ?code=...&state=...
+  - POST /oauth/token
+    - Body: { grant_type: "authorization_code", code, redirect_uri, client_id, client_secret? }
+    - Exchanges code for a JWT bearer access_token with scope "admin".
+  - GET /admin/me
+    - Requires Authorization: Bearer <token>.
+    - Returns the token claims (mock admin identity).
+- This is a mock for local/dev integration with the Web Admin Panel. Not for production.
+- Configure clients via ADMIN_OAUTH_CLIENTS env var (JSON array). Example:
+  ADMIN_OAUTH_CLIENTS='[{"provider":"mock","client_id":"admin-web","client_secret":"dev-secret"}]'
+
 How to run BackendAPI locally:
 1) Copy the example env and edit values as needed:
    cp BackendAPI/.env.example BackendAPI/.env
