@@ -1,0 +1,92 @@
+"""Security utilities for password hashing and JWT token management.
+
+Provides:
+- Password hashing and verification using passlib[bcrypt]
+- JWT creation and verification using PyJWT
+- FastAPI OAuth2PasswordBearer dependency for protecting routes
+
+Environment:
+- JWT_SECRET and JWT_EXPIRES_MIN are read from src.api.config.get_settings()
+
+Notes:
+- This module does not perform database access; it only handles crypto and token concerns.
+"""
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
+
+import jwt  # PyJWT
+from fastapi.security import OAuth2PasswordBearer
+from fastapi import HTTPException, status
+
+from passlib.context import CryptContext
+
+from src.api.config import get_settings
+
+# Configure password hashing context (bcrypt)
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# OAuth2 bearer token dependency to protect future routes
+# PUBLIC_INTERFACE
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login",
+    scheme_name="JWT",
+    description="Include the Bearer token obtained from /api/v1/auth/login",
+)
+
+
+# PUBLIC_INTERFACE
+def hash_password(plain_password: str) -> str:
+    """Hash a plaintext password using bcrypt via passlib."""
+    return _pwd_context.hash(plain_password)
+
+
+# PUBLIC_INTERFACE
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    """Verify a plaintext password against a stored bcrypt hash."""
+    try:
+        return _pwd_context.verify(plain_password, password_hash)
+    except Exception:
+        return False
+
+
+# PUBLIC_INTERFACE
+def create_access_token(subject: Dict[str, Any], expires_minutes_override: Optional[int] = None) -> str:
+    """Create a signed JWT access token.
+
+    subject: dict payload that at minimum should include a 'sub' or 'user_id' claim.
+    expires_minutes_override: optional expiration in minutes overriding settings.
+    """
+    settings = get_settings()
+    expires_in_min = expires_minutes_override if expires_minutes_override is not None else settings.jwt_expires_min
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=expires_in_min)
+
+    payload = {
+        "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()),
+        "exp": int(expire.timestamp()),
+        **subject,
+    }
+    token = jwt.encode(payload, settings.jwt_secret or "insecure-dev-secret", algorithm="HS256")
+    return token
+
+
+# PUBLIC_INTERFACE
+def decode_access_token(token: str) -> Dict[str, Any]:
+    """Decode and validate a JWT access token, raising HTTP 401 on errors."""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret or "insecure-dev-secret", algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )

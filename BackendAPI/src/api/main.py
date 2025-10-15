@@ -51,9 +51,12 @@ async def _on_shutdown() -> None:
     await close_db_pool()
 
 
-# Placeholder router registrations (to be implemented in subsequent tasks)
-# from src.api.routers import auth, bookings, payments, loyalty, notifications, chat
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+# Routers
+from src.api.routers import auth  # type: ignore
+
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+# Future routers will be included similarly:
+# from src.api.routers import bookings, payments, loyalty, notifications, chat
 # app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["bookings"])
 # app.include_router(payments.router, prefix="/api/v1/payments", tags=["payments"])
 # app.include_router(loyalty.router, prefix="/api/v1/loyalty", tags=["loyalty"])
