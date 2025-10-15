@@ -30,7 +30,7 @@ class Settings(BaseModel):
     jwt_secret: str = Field(default=os.getenv("JWT_SECRET", ""), description="JWT signing secret")
     jwt_expires_min: int = Field(default=int(os.getenv("JWT_EXPIRES_MIN", "60")), description="JWT expiration in minutes")
 
-    cors_origins: List[str] = Field(default_factory=list, description="List of allowed CORS origins")
+    cors_origins: List[str] = Field(default=None, description="List of allowed CORS origins")
 
     # Raw JSON string for admin OAuth clients
     admin_oauth_clients_raw: str = Field(default=os.getenv("ADMIN_OAUTH_CLIENTS", "[]"))
@@ -43,10 +43,10 @@ class Settings(BaseModel):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
-        # Accept already-parsed list or comma-separated string
+        # Accept already-parsed list
         if isinstance(v, list) and v:
             return v
-        # Get from environment (should be loaded by load_dotenv() at module level)
+        # If None or empty, get from environment
         raw = os.getenv("CORS_ORIGINS", "")
         if not raw:
             # Reasonable defaults for local dev (web and mobile)
