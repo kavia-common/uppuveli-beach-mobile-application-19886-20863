@@ -4,23 +4,20 @@ Endpoints:
 - GET /api/v1/loyalty: Get loyalty points and history (JWT protected)
 
 DB Expectations:
-- users.loyalty_points INTEGER
-- loyalty_history table:
-    id SERIAL PRIMARY KEY
-    user_id INTEGER NOT NULL REFERENCES users(id)
-    change INTEGER NOT NULL
-    reason TEXT NOT NULL
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- LoyaltyAccount ORM model with relationship to LoyaltyHistory
 """
 
 from datetime import datetime
-from typing import List
+from typing import Dict, List
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from src.api.db import fetch_all, fetch_one
-from src.api.security import decode_access_token, oauth2_scheme
+from src.api.db import get_db
+from src.api.models import LoyaltyAccount as LoyaltyAccountORM, LoyaltyHistory as LoyaltyHistoryORM
+from src.api.security import get_current_user
 
 router = APIRouter()
 
@@ -39,13 +36,11 @@ class Loyalty(BaseModel):
     history: List[LoyaltyHistoryItem] = Field(default_factory=list, description="Points change history")
 
 
-async def _require_user_id(token: str) -> int:
-    payload = decode_access_token(token)
-    uid = payload.get("user_id") or payload.get("sub")
-    try:
-        return int(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject") from exc
+def _uuid_to_int(uuid_val) -> int:
+    """Convert UUID to int representation for API compatibility."""
+    if isinstance(uuid_val, UUID):
+        return int(uuid_val.hex, 16) % (10**18)
+    return int(uuid_val)
 
 
 # PUBLIC_INTERFACE
@@ -56,19 +51,48 @@ async def _require_user_id(token: str) -> int:
     description="Returns current loyalty points and recent history for the authenticated user.",
     response_model=Loyalty,
     responses={200: {"description": "Loyalty info"}, 401: {"description": "Unauthorized"}},
+    dependencies=[Depends(get_current_user)],
 )
-async def get_loyalty(token: str = Depends(oauth2_scheme)) -> Loyalty:
+async def get_loyalty(
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Loyalty:
     """Get loyalty info for current user."""
-    user_id = await _require_user_id(token)
-    user = await fetch_one("SELECT id, COALESCE(loyalty_points,0) AS points FROM users WHERE id=$1", user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    user_id_str = current_user.get("user_id") or current_user.get("sub")
+    user_id_uuid = UUID(user_id_str) if isinstance(user_id_str, str) else user_id_str
 
-    rows = await fetch_all(
-        "SELECT change, reason, created_at FROM loyalty_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",
-        user_id,
-    )
+    # Query loyalty account
+    loyalty_account = db.query(LoyaltyAccountORM).filter(
+        LoyaltyAccountORM.user_id == user_id_uuid
+    ).first()
+
+    if not loyalty_account:
+        # Create default loyalty account if not exists
+        loyalty_account = LoyaltyAccountORM(
+            user_id=user_id_uuid,
+            points=0,
+            tier="basic"
+        )
+        db.add(loyalty_account)
+        db.commit()
+        db.refresh(loyalty_account)
+
+    # Query history
+    history_records = db.query(LoyaltyHistoryORM).filter(
+        LoyaltyHistoryORM.user_id == user_id_uuid
+    ).order_by(LoyaltyHistoryORM.created_at.desc()).limit(100).all()
+
     history = [
-        LoyaltyHistoryItem(date=r["created_at"], change=int(r["change"]), reason=str(r["reason"])) for r in rows
+        LoyaltyHistoryItem(
+            date=record.created_at,
+            change=record.change,
+            reason=record.reason.value
+        )
+        for record in history_records
     ]
-    return Loyalty(userId=user_id, points=int(user["points"]), history=history)
+
+    return Loyalty(
+        userId=_uuid_to_int(user_id_uuid),
+        points=loyalty_account.points,
+        history=history
+    )

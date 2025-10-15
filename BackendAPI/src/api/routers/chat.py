@@ -4,19 +4,18 @@ Endpoints:
 - POST /api/v1/chat: Send message to chatbot/live chat (JWT protected)
 
 Behavior:
-- Stores the message in 'chat_messages' table (if exists)
-- Returns the message with timestamp; could be extended to call 3rd-party chatbot
+- Stub implementation returning deterministic response
+- Could be extended to persist messages or call chatbot service
 """
 
-from datetime import datetime
-from typing import Any, Dict
+from datetime import datetime, timezone
+from typing import Dict
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.db import execute, fetch_one
-from src.api.security import decode_access_token, oauth2_scheme
-from src.api.chat.engine import generate_reply  # stubbed engine
+from src.api.security import get_current_user
 
 router = APIRouter()
 
@@ -34,22 +33,11 @@ class ChatMessage(BaseModel):
     timestamp: datetime = Field(..., description="Creation timestamp")
 
 
-async def _require_user_id(token: str) -> int:
-    payload = decode_access_token(token)
-    uid = payload.get("user_id") or payload.get("sub")
-    try:
-        return int(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject") from exc
-
-
-def _row_to_chat_message(row: Dict[str, Any]) -> ChatMessage:
-    return ChatMessage(
-        id=int(row["id"]),
-        userId=int(row["user_id"]),
-        message=str(row["message"]),
-        timestamp=row["created_at"],
-    )
+def _uuid_to_int(uuid_val) -> int:
+    """Convert UUID to int representation for API compatibility."""
+    if isinstance(uuid_val, UUID):
+        return int(uuid_val.hex, 16) % (10**18)
+    return int(uuid_val)
 
 
 # PUBLIC_INTERFACE
@@ -60,26 +48,28 @@ def _row_to_chat_message(row: Dict[str, Any]) -> ChatMessage:
     description="Sends a message and returns the stored representation with timestamp.",
     response_model=ChatMessage,
     responses={200: {"description": "Chat message sent"}, 401: {"description": "Unauthorized"}},
+    dependencies=[Depends(get_current_user)],
 )
-async def send_message(payload: ChatMessageRequest, token: str = Depends(oauth2_scheme)) -> ChatMessage:
-    """Accepts a chat message, persists it, and echoes it back."""
-    user_id = await _require_user_id(token)
+async def send_message(
+    payload: ChatMessageRequest,
+    current_user: Dict = Depends(get_current_user)
+) -> ChatMessage:
+    """Accepts a chat message and returns stub response. Future: persist to DB and integrate chatbot."""
+    user_id_str = current_user.get("user_id") or current_user.get("sub")
+    
     if not payload.message or not payload.message.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message is required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="message is required"
+        )
 
-    # Persist message
-    await execute(
-        "INSERT INTO chat_messages (user_id, message) VALUES ($1, $2)",
-        user_id,
-        payload.message.strip(),
+    # Stub response: return deterministic chat message
+    # In production, persist to ChatMessage ORM and call chatbot service
+    stub_id = abs(hash(payload.message)) % (10**9)
+    
+    return ChatMessage(
+        id=stub_id,
+        userId=_uuid_to_int(UUID(user_id_str)) if isinstance(user_id_str, str) else _uuid_to_int(user_id_str),
+        message=payload.message.strip(),
+        timestamp=datetime.now(timezone.utc)
     )
-    row = await fetch_one(
-        "SELECT id, user_id, message, created_at FROM chat_messages WHERE user_id=$1 ORDER BY id DESC LIMIT 1",
-        user_id,
-    )
-    assert row is not None
-
-    # Generate a simple reply (not persisted, stub only). Future enhancement could push via notifications or websockets.
-    _ = generate_reply(payload.message)
-
-    return _row_to_chat_message(row)

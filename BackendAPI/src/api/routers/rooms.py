@@ -4,20 +4,18 @@ Endpoints:
 - GET /api/v1/rooms: Retrieve available rooms and details (JWT protected)
 
 DB Expectations:
-- rooms table example fields:
-    id SERIAL PRIMARY KEY
-    type TEXT NOT NULL
-    price NUMERIC(10,2) NOT NULL
-    availability BOOLEAN NOT NULL DEFAULT TRUE
+- Room ORM model with fields: id, type, price, availability
 """
 
-from typing import List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from src.api.db import fetch_all
-from src.api.security import oauth2_scheme
+from src.api.db import get_db
+from src.api.models import Room as RoomORM
+from src.api.security import get_current_user
 
 router = APIRouter()
 
@@ -30,15 +28,6 @@ class Room(BaseModel):
     availability: bool = Field(..., description="Availability flag")
 
 
-def _row_to_room(row: dict) -> Room:
-    return Room(
-        id=int(row["id"]),
-        type=str(row["type"]),
-        price=float(row["price"]),
-        availability=bool(row["availability"]),
-    )
-
-
 # PUBLIC_INTERFACE
 @router.get(
     "",
@@ -47,10 +36,20 @@ def _row_to_room(row: dict) -> Room:
     description="Returns list of rooms including type, price, and availability.",
     response_model=List[Room],
     responses={200: {"description": "List of rooms"}},
+    dependencies=[Depends(get_current_user)],
 )
-async def list_rooms(token: str = Depends(oauth2_scheme)) -> List[Room]:
-    """List rooms. JWT token is required; token is validated by dependency."""
-    rows = await fetch_all(
-        "SELECT id, type, price, availability FROM rooms ORDER BY id ASC"
-    )
-    return [_row_to_room(r) for r in rows]
+async def list_rooms(
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> List[Room]:
+    """List rooms. JWT token is required; token is validated by get_current_user dependency."""
+    rooms = db.query(RoomORM).order_by(RoomORM.id).all()
+    return [
+        Room(
+            id=int(str(room.id)) if hasattr(room.id, 'hex') else int(room.id),
+            type=room.type,
+            price=float(room.price),
+            availability=room.availability
+        )
+        for room in rooms
+    ]

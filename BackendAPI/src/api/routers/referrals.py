@@ -4,33 +4,23 @@ Endpoints:
 - POST /api/v1/referrals: Submit referral code or generate new for current user (JWT protected)
 
 Behavior:
-- If 'code' provided: validate and credit rewards if applicable
+- If 'code' provided: validate and credit rewards
 - If no 'code': generate a unique code for the user and return it
-
-DB Expectations:
-- referrals table:
-    id SERIAL PRIMARY KEY
-    user_id INTEGER NOT NULL REFERENCES users(id)
-    code TEXT UNIQUE NOT NULL
-    rewards INTEGER NOT NULL DEFAULT 0
-
-- referral_uses table (optional):
-    id SERIAL PRIMARY KEY
-    referrer_user_id INTEGER NOT NULL
-    referee_user_id INTEGER NOT NULL
-    code TEXT NOT NULL
-    created_at TIMESTAMPTZ DEFAULT now()
 """
 
 import secrets
 import string
-from typing import Optional
+from typing import Dict, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
-from src.api.db import execute, fetch_one
-from src.api.security import decode_access_token, oauth2_scheme
+from src.api.db import get_db
+from src.api.models import Referral as ReferralORM, ReferralStatus
+from src.api.security import get_current_user
 
 router = APIRouter()
 
@@ -47,16 +37,15 @@ class Referral(BaseModel):
     rewards: int = Field(..., description="Accumulated rewards points")
 
 
-async def _require_user_id(token: str) -> int:
-    payload = decode_access_token(token)
-    uid = payload.get("user_id") or payload.get("sub")
-    try:
-        return int(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject") from exc
+def _uuid_to_int(uuid_val) -> int:
+    """Convert UUID to int representation for API compatibility."""
+    if isinstance(uuid_val, UUID):
+        return int(uuid_val.hex, 16) % (10**18)
+    return int(uuid_val)
 
 
 def _generate_code(length: int = 8) -> str:
+    """Generate a random alphanumeric referral code."""
     alphabet = string.ascii_uppercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
@@ -73,44 +62,83 @@ def _generate_code(length: int = 8) -> str:
         400: {"description": "Invalid code"},
         401: {"description": "Unauthorized"},
     },
+    dependencies=[Depends(get_current_user)],
 )
-async def submit_or_generate(payload: ReferralRequest, token: str = Depends(oauth2_scheme)) -> Referral:
+async def submit_or_generate(
+    payload: ReferralRequest,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Referral:
     """Process referral: apply a code or generate the user's code."""
-    user_id = await _require_user_id(token)
+    user_id_str = current_user.get("user_id") or current_user.get("sub")
+    user_id_uuid = UUID(user_id_str) if isinstance(user_id_str, str) else user_id_str
 
-    # If code provided, attempt to redeem (referee is current user)
+    # If code provided, attempt to redeem
     if payload.code:
-        ref = await fetch_one("SELECT user_id, code, rewards FROM referrals WHERE code=$1", payload.code.upper())
+        ref = db.query(ReferralORM).filter(
+            ReferralORM.code == payload.code.upper()
+        ).first()
+        
         if not ref:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
-        referrer_id = int(ref["user_id"])
-        if referrer_id == user_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use own referral code")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid code"
+            )
+        
+        if ref.user_id == user_id_uuid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot use own referral code"
+            )
 
-        # Credit referrer rewards (+10 points for example) and record use (idempotency not enforced in stub)
-        await execute("UPDATE referrals SET rewards = rewards + 10 WHERE code=$1", payload.code.upper())
-        await execute(
-            "INSERT INTO referral_uses (referrer_user_id, referee_user_id, code) VALUES ($1, $2, $3)",
-            referrer_id,
-            user_id,
-            payload.code.upper(),
+        # Credit referrer rewards (+10 points)
+        ref.rewards += 10
+        ref.status = ReferralStatus.USED
+        db.commit()
+        db.refresh(ref)
+
+        return Referral(
+            userId=_uuid_to_int(ref.user_id),
+            code=ref.code,
+            rewards=ref.rewards
         )
-        updated = await fetch_one("SELECT user_id, code, rewards FROM referrals WHERE code=$1", payload.code.upper())
-        assert updated is not None
-        return Referral(userId=int(updated["user_id"]), code=updated["code"], rewards=int(updated["rewards"]))
 
     # No code: ensure current user has a referral code, generate if missing
-    existing = await fetch_one("SELECT user_id, code, rewards FROM referrals WHERE user_id=$1", user_id)
+    existing = db.query(ReferralORM).filter(
+        ReferralORM.user_id == user_id_uuid
+    ).first()
+    
     if existing:
-        return Referral(userId=user_id, code=existing["code"], rewards=int(existing["rewards"]))
+        return Referral(
+            userId=_uuid_to_int(user_id_uuid),
+            code=existing.code,
+            rewards=existing.rewards
+        )
 
-    # Generate unique code; retry a few times on collision
+    # Generate unique code with retry logic
     for _ in range(5):
         code = _generate_code()
         try:
-            await execute("INSERT INTO referrals (user_id, code, rewards) VALUES ($1, $2, 0)", user_id, code)
-            return Referral(userId=user_id, code=code, rewards=0)
-        except Exception:
+            referral = ReferralORM(
+                user_id=user_id_uuid,
+                code=code,
+                status=ReferralStatus.GENERATED,
+                rewards=0
+            )
+            db.add(referral)
+            db.commit()
+            db.refresh(referral)
+            
+            return Referral(
+                userId=_uuid_to_int(user_id_uuid),
+                code=code,
+                rewards=0
+            )
+        except IntegrityError:
+            db.rollback()
             continue
 
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not generate referral code")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Could not generate referral code"
+    )
