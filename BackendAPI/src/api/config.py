@@ -46,6 +46,7 @@ class Settings(BaseModel):
         # Accept already-parsed list or comma-separated string
         if isinstance(v, list) and v:
             return v
+        # Get from environment (should be loaded by load_dotenv() at module level)
         raw = os.getenv("CORS_ORIGINS", "")
         if not raw:
             # Reasonable defaults for local dev (web and mobile)
@@ -56,6 +57,11 @@ class Settings(BaseModel):
                 "ionic://localhost",
             ]
         return [item.strip() for item in raw.split(",") if item.strip()]
+
+    def __init__(self, **data):
+        # Ensure .env is loaded before initializing
+        load_dotenv()
+        super().__init__(**data)
 
     @field_validator("admin_oauth_clients", mode="before")
     @classmethod
