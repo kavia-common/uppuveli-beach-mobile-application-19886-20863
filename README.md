@@ -33,3 +33,10 @@ Standardized responses:
 Notes:
 - SQLite used via SQLModel; demo seed user: demo@uppuveli.com / password123 (if SEED_DEMO=true)
 - CORS is permissive for now.
+
+Tests
+- Run test suite:
+  - cd BackendAPI
+  - CI=true pytest -q --maxfail=1 --disable-warnings
+- Tests use an in-memory SQLite database and do not touch production data.
+- Env overrides during tests: TESTING=true and SEED_DEMO=false; JWT secret and expiry set to test-safe values.
