@@ -33,7 +33,20 @@ def list_bookings(
         .limit(limit)
     )
     bookings = session.exec(statement).all()
-    serialized = [BookingSchema.model_validate(b).model_dump() for b in bookings]
+
+    # Build BookingSchema instances explicitly to avoid passing SQLModel to Pydantic v2
+    serialized: List[dict] = []
+    for b in bookings:
+        schema = BookingSchema(
+            id=b.id,
+            room_id=b.room_id,
+            guest_id=b.guest_id,
+            check_in=b.check_in,
+            check_out=b.check_out,
+            status=b.status,
+        )
+        serialized.append(schema.model_dump())
+
     return SuccessResponse(status="success", data=serialized)
 
 
@@ -65,5 +78,14 @@ def create_booking(
     session.commit()
     session.refresh(booking)
 
-    data = BookingSchema.model_validate(booking)
-    return SuccessResponse(status="success", data=data)
+    # Build BookingSchema using explicit fields, then return its data
+    data_schema = BookingSchema(
+        id=booking.id,
+        room_id=booking.room_id,
+        guest_id=booking.guest_id,
+        check_in=booking.check_in,
+        check_out=booking.check_out,
+        status=booking.status,
+    )
+
+    return SuccessResponse(status="success", data=data_schema)
