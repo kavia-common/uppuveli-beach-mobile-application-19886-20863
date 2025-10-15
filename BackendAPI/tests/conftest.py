@@ -23,9 +23,14 @@ TEST_DATABASE_URL = "sqlite://"
 # Create a dedicated test engine (check_same_thread False for TestClient threads)
 test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 
+# Import models so that SQLModel metadata is populated before create_all on test engine
+from app.models.user import User  # noqa: F401,E402
+from app.models.booking import Booking  # noqa: F401,E402
+
 
 def create_db():
     """Create all tables in the in-memory database."""
+    # Ensure models are imported before creating tables (imports above)
     SQLModel.metadata.create_all(test_engine)
 
 
@@ -62,6 +67,9 @@ def app():
 
     # Override DB session dependency
     application.dependency_overrides[prod_get_session] = get_test_session
+
+    # Double-ensure tables exist for this app instance (safety)
+    SQLModel.metadata.create_all(test_engine)
 
     # Optionally, ensure oauth2 tokenUrl remains consistent
     security_module.oauth2_scheme.model.tokenUrl = "/auth/login"
