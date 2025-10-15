@@ -1,5 +1,4 @@
-from contextlib import contextmanager
-from typing import Iterator
+from typing import Generator
 
 from sqlmodel import SQLModel, Session, create_engine
 
@@ -20,11 +19,14 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
 
-@contextmanager
-def get_session() -> Iterator[Session]:
-    """Provide a transactional scope around a series of operations."""
-    with Session(engine) as session:
+# PUBLIC_INTERFACE
+def get_session() -> Generator[Session, None, None]:
+    """FastAPI dependency that yields a database Session and ensures it is closed."""
+    session = Session(engine)
+    try:
         yield session
+    finally:
+        session.close()
 
 
 def seed_demo_data():

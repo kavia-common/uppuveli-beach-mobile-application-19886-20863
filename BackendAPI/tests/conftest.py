@@ -1,6 +1,5 @@
 import os
-from contextlib import contextmanager
-from typing import Iterator, Generator
+from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,11 +29,13 @@ def create_db():
     SQLModel.metadata.create_all(test_engine)
 
 
-@contextmanager
-def get_test_session() -> Iterator[Session]:
-    """Yield a session bound to the in-memory test engine."""
-    with Session(test_engine) as session:
+def get_test_session() -> Generator[Session, None, None]:
+    """FastAPI dependency that yields a Session bound to the in-memory test engine."""
+    session = Session(test_engine)
+    try:
         yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
