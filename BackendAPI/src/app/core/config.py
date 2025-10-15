@@ -27,5 +27,6 @@ settings = get_settings()
 openapi_tags = [
     {"name": "Auth", "description": "Authentication and user onboarding."},
     {"name": "Bookings", "description": "Manage room bookings."},
+    {"name": "Payments", "description": "Process and view booking payments."},
     {"name": "Health", "description": "Health and diagnostics."},
 ]

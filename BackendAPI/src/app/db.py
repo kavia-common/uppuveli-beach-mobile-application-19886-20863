@@ -5,6 +5,7 @@ from sqlmodel import SQLModel, Session, create_engine, select  # import select f
 from app.core.config import settings
 from app.models.booking import Booking
 from app.models.user import User
+from app.models.payment import Payment  # ensure table creation
 from app.core.security import get_password_hash
 
 # Create engine (SQLite by default)
@@ -16,6 +17,8 @@ engine = create_engine(settings.DATABASE_URL, echo=False, connect_args=connect_a
 
 def create_db_and_tables():
     """Create database tables."""
+    # Reference models to ensure import side-effects register their tables
+    _models = (User, Booking, Payment)  # noqa: F841
     SQLModel.metadata.create_all(engine)
 
 

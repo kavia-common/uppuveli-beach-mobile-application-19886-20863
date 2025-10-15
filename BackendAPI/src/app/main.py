@@ -9,6 +9,7 @@ from app.core.config import settings, openapi_tags
 from app.schemas.common import ErrorResponse
 from app.api.routes import auth as auth_routes
 from app.api.routes import bookings as bookings_routes
+from app.api.routes import payments as payments_routes
 from app.db import create_db_and_tables, seed_demo_data
 
 
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(auth_routes.router, prefix="/auth", tags=["Auth"])
     app.include_router(bookings_routes.router, prefix="/bookings", tags=["Bookings"])
+    app.include_router(payments_routes.router, prefix="/payments", tags=["Payments"])
 
     # Health check
     @app.get("/", tags=["Health"], summary="Health Check")

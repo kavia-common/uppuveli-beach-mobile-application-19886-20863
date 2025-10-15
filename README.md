@@ -21,6 +21,8 @@ Implemented endpoints:
 - POST /auth/login
 - GET /bookings?limit=20&offset=0 (requires Bearer token)
 - POST /bookings (requires Bearer token)
+- POST /payments (requires Bearer token) — process a payment for a booking
+- GET /payments/{booking_id} (requires Bearer token) — list payments for a booking
 
 Auth
 - JWT Bearer tokens with OAuth2 password flow (token issued by /auth/login)
