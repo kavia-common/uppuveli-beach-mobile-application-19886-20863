@@ -90,3 +90,24 @@ def decode_access_token(token: str) -> Dict[str, Any]:
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+# PUBLIC_INTERFACE
+async def get_current_user(token: str = oauth2_scheme) -> Dict[str, Any]:
+    """FastAPI dependency to extract and validate the current user from JWT token.
+    
+    This dependency can be used in any route that requires authentication:
+    
+    Example:
+        @router.get("/protected")
+        async def protected_route(current_user: dict = Depends(get_current_user)):
+            user_id = current_user.get("user_id")
+            return {"message": f"Hello user {user_id}"}
+    
+    Returns:
+        Dict containing the decoded JWT payload with user claims (user_id, sub, etc.)
+    
+    Raises:
+        HTTPException: 401 if token is invalid, expired, or missing
+    """
+    return decode_access_token(token)

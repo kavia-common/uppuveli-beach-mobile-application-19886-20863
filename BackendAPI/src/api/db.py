@@ -29,7 +29,7 @@ import logging
 import os
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from src.api.config import get_settings
@@ -80,7 +80,7 @@ def init_db_engine() -> None:
         
         # Quick connectivity check
         with _engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         
         logging.info("Database engine initialized successfully.")
         
@@ -155,7 +155,6 @@ def get_engine():
 # These wrap synchronous SQLAlchemy operations.
 
 from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy import text
 
 
 # PUBLIC_INTERFACE
