@@ -1,6 +1,6 @@
 from typing import Generator
 
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select  # import select for querying
 
 from app.core.config import settings
 from app.models.booking import Booking
@@ -34,7 +34,8 @@ def seed_demo_data():
     with Session(engine) as session:
         # Seed a demo user
         demo_email = "demo@uppuveli.com"
-        existing_user = session.exec(User.select().where(User.email == demo_email)).first()  # type: ignore
+        # Correct SQLModel/SQLAlchemy 2.0 style select usage
+        existing_user = session.exec(select(User).where(User.email == demo_email)).first()
         if not existing_user:
             demo_user = User(
                 email=demo_email,
