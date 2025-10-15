@@ -58,9 +58,20 @@ Environment placeholders
   Do NOT hardcode secrets in code. Provide them in BackendAPI/.env for non-stub usage.
 
 OpenAPI
-- Generate OpenAPI schema file:
-  cd BackendAPI && python -m src.api.generate_openapi
-  Output will be at BackendAPI/interfaces/openapi.json
+- Generate OpenAPI schema file (from project root):
+  cd BackendAPI
+  # Using Python module (preferred)
+  python -m src.api.generate_openapi
+  # Output:
+  #   BackendAPI/interfaces/openapi.json
+
+- Alternatively, if you prefer a one-liner:
+  (cd BackendAPI && python -m src.api.generate_openapi)
+
+- Path to generated spec:
+  BackendAPI/interfaces/openapi.json
+
+- Note: The generator imports src.api.main:app which already includes all routers; the output always reflects current routes/tags.
 
 Mobile API endpoints (JWT protected)
 - GET /api/v1/rooms
