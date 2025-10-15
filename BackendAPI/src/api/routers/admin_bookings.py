@@ -10,13 +10,8 @@ Endpoints:
 - DELETE /api/v1/bookings/{id}      : Delete a booking by ID
 
 DB Expectations:
-- bookings table with at least:
-    id SERIAL PRIMARY KEY
-    user_id INTEGER NOT NULL REFERENCES users(id)
-    room_id INTEGER NOT NULL REFERENCES rooms(id)
-    check_in DATE NOT NULL
-    check_out DATE NOT NULL
-    status TEXT NOT NULL DEFAULT 'booked'
+- bookings table with UUID primary keys
+- user_id and room_id reference users and rooms tables respectively
 """
 
 from datetime import date
@@ -24,25 +19,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from src.api.db import execute, fetch_all, fetch_one
-from src.api.security import decode_access_token, oauth2_scheme
+from src.api.db import get_db
+from src.api.models import Booking as BookingORM, User as UserORM, Room as RoomORM, BookingStatus
+from src.api.security import require_admin_scope
 
 router = APIRouter()
-
-
-def _require_admin(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
-    """Ensure the provided bearer token has admin scope."""
-    payload = decode_access_token(token)
-    scope = str(payload.get("scope", ""))
-    # Scope can contain space-separated scopes; ensure 'admin' present
-    if "admin" not in scope.split():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="admin_scope_required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return payload
 
 
 class Booking(BaseModel):
@@ -73,26 +56,31 @@ class UpdateBookingRequest(BaseModel):
     status: Optional[str] = Field(None, description="Booking status")
 
 
-def _row_to_booking(row: Dict[str, Any]) -> Booking:
-    """Map DB row to Booking model."""
+def _orm_to_booking(booking: BookingORM) -> Booking:
+    """Convert ORM Booking model to Pydantic response model."""
+    # Convert UUIDs to integers for API compatibility (keeping spec alignment)
+    # In production, you'd use proper UUID handling, but spec expects integers
     return Booking(
-        id=int(row["id"]),
-        userId=int(row["user_id"]),
-        roomId=int(row["room_id"]),
-        status=str(row["status"]),
-        checkIn=row["check_in"],
-        checkOut=row["check_out"],
+        id=int(str(booking.id).replace("-", "")[:8], 16),  # Hash UUID to int for compatibility
+        userId=int(str(booking.user_id).replace("-", "")[:8], 16),
+        roomId=int(str(booking.room_id).replace("-", "")[:8], 16),
+        status=booking.status.value if isinstance(booking.status, BookingStatus) else str(booking.status),
+        checkIn=booking.check_in,
+        checkOut=booking.check_out,
     )
 
 
-async def _get_booking_or_404(booking_id: int) -> Dict[str, Any]:
-    row = await fetch_one(
-        "SELECT id, user_id, room_id, status, check_in, check_out FROM bookings WHERE id=$1",
-        booking_id,
-    )
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
-    return row
+def _get_booking_or_404(db: Session, booking_id: int) -> BookingORM:
+    """Get booking by pseudo-integer ID or raise 404."""
+    # Since we're converting UUID to int, we need to query all and find match
+    # This is inefficient but maintains API compatibility
+    # In production, use UUID paths or proper ID mapping
+    bookings = db.query(BookingORM).all()
+    for booking in bookings:
+        pseudo_id = int(str(booking.id).replace("-", "")[:8], 16)
+        if pseudo_id == booking_id:
+            return booking
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
 
 
 # PUBLIC_INTERFACE
@@ -105,18 +93,14 @@ async def _get_booking_or_404(booking_id: int) -> Dict[str, Any]:
     responses={200: {"description": "List of bookings"}, 401: {"description": "Unauthorized"}},
 )
 async def list_bookings(
-    _: Dict[str, Any] = Depends(_require_admin),
+    _: Dict[str, Any] = Depends(require_admin_scope),
+    db: Session = Depends(get_db),
     limit: int = Query(20, ge=1, le=200, description="Max number of records to return"),
     offset: int = Query(0, ge=0, description="Number of records to skip"),
 ) -> List[Booking]:
     """List bookings with pagination."""
-    rows = await fetch_all(
-        "SELECT id, user_id, room_id, status, check_in, check_out "
-        "FROM bookings ORDER BY id DESC LIMIT $1 OFFSET $2",
-        limit,
-        offset,
-    )
-    return [_row_to_booking(r) for r in rows]
+    bookings = db.query(BookingORM).order_by(BookingORM.created_at.desc()).limit(limit).offset(offset).all()
+    return [_orm_to_booking(b) for b in bookings]
 
 
 # PUBLIC_INTERFACE
@@ -135,42 +119,56 @@ async def list_bookings(
 )
 async def create_booking_admin(
     payload: CreateBookingRequest,
-    _: Dict[str, Any] = Depends(_require_admin),
+    _: Dict[str, Any] = Depends(require_admin_scope),
+    db: Session = Depends(get_db),
 ) -> Booking:
     """Create a booking as admin."""
     if payload.checkOut <= payload.checkIn:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="checkOut must be after checkIn")
 
-    # Validate user and room existence
-    user = await fetch_one("SELECT id FROM users WHERE id=$1", payload.userId)
+    # Since API uses integer IDs but DB uses UUIDs, we need to look up by pseudo-ID
+    # This is a workaround for API compatibility - in production use UUIDs end-to-end
+    users = db.query(UserORM).all()
+    user = None
+    for u in users:
+        if int(str(u.id).replace("-", "")[:8], 16) == payload.userId:
+            user = u
+            break
+    
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid userId")
 
-    room = await fetch_one("SELECT id FROM rooms WHERE id=$1", payload.roomId)
+    rooms = db.query(RoomORM).all()
+    room = None
+    for r in rooms:
+        if int(str(r.id).replace("-", "")[:8], 16) == payload.roomId:
+            room = r
+            break
+    
     if not room:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid roomId")
 
-    status_val = (payload.status or "booked").strip() or "booked"
+    # Parse status
+    status_val = payload.status or "booked"
+    try:
+        booking_status = BookingStatus(status_val.lower())
+    except ValueError:
+        booking_status = BookingStatus.BOOKED
 
-    await execute(
-        "INSERT INTO bookings (user_id, room_id, check_in, check_out, status) VALUES ($1, $2, $3, $4, $5)",
-        payload.userId,
-        payload.roomId,
-        payload.checkIn,
-        payload.checkOut,
-        status_val,
+    # Create booking
+    booking = BookingORM(
+        user_id=user.id,
+        room_id=room.id,
+        check_in=payload.checkIn,
+        check_out=payload.checkOut,
+        status=booking_status,
+        guests=1,  # Default
     )
-    created = await fetch_one(
-        "SELECT id, user_id, room_id, status, check_in, check_out FROM bookings "
-        "WHERE user_id=$1 AND room_id=$2 AND check_in=$3 AND check_out=$4 "
-        "ORDER BY id DESC LIMIT 1",
-        payload.userId,
-        payload.roomId,
-        payload.checkIn,
-        payload.checkOut,
-    )
-    assert created is not None
-    return _row_to_booking(created)
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+    
+    return _orm_to_booking(booking)
 
 
 # PUBLIC_INTERFACE
@@ -184,11 +182,12 @@ async def create_booking_admin(
 )
 async def get_booking_admin(
     booking_id: int = Path(..., ge=1),
-    _: Dict[str, Any] = Depends(_require_admin),
+    _: Dict[str, Any] = Depends(require_admin_scope),
+    db: Session = Depends(get_db),
 ) -> Booking:
     """Retrieve a booking by ID."""
-    row = await _get_booking_or_404(booking_id)
-    return _row_to_booking(row)
+    booking = _get_booking_or_404(db, booking_id)
+    return _orm_to_booking(booking)
 
 
 # PUBLIC_INTERFACE
@@ -203,58 +202,58 @@ async def get_booking_admin(
 async def update_booking_admin(
     payload: UpdateBookingRequest,
     booking_id: int = Path(..., ge=1),
-    _: Dict[str, Any] = Depends(_require_admin),
+    _: Dict[str, Any] = Depends(require_admin_scope),
+    db: Session = Depends(get_db),
 ) -> Booking:
     """Update a booking by ID with provided fields."""
-    # Ensure exists
-    _ = await _get_booking_or_404(booking_id)
+    booking = _get_booking_or_404(db, booking_id)
 
     # Validate date logic if both provided
-    if payload.checkIn and payload.checkOut and payload.checkOut <= payload.checkIn:
+    check_in = payload.checkIn if payload.checkIn is not None else booking.check_in
+    check_out = payload.checkOut if payload.checkOut is not None else booking.check_out
+    
+    if check_out <= check_in:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="checkOut must be after checkIn")
 
-    # Validate foreign keys if provided
+    # Validate and resolve user_id if provided
     if payload.userId is not None:
-        u = await fetch_one("SELECT id FROM users WHERE id=$1", payload.userId)
-        if not u:
+        users = db.query(UserORM).all()
+        user = None
+        for u in users:
+            if int(str(u.id).replace("-", "")[:8], 16) == payload.userId:
+                user = u
+                break
+        if not user:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid userId")
+        booking.user_id = user.id
+
+    # Validate and resolve room_id if provided
     if payload.roomId is not None:
-        r = await fetch_one("SELECT id FROM rooms WHERE id=$1", payload.roomId)
-        if not r:
+        rooms = db.query(RoomORM).all()
+        room = None
+        for r in rooms:
+            if int(str(r.id).replace("-", "")[:8], 16) == payload.roomId:
+                room = r
+                break
+        if not room:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid roomId")
+        booking.room_id = room.id
 
-    # Build dynamic update
-    sets: List[str] = []
-    params: List[Any] = []
-    if payload.userId is not None:
-        sets.append(f"user_id=${len(params)+1}")
-        params.append(payload.userId)
-    if payload.roomId is not None:
-        sets.append(f"room_id=${len(params)+1}")
-        params.append(payload.roomId)
+    # Update fields
     if payload.checkIn is not None:
-        sets.append(f"check_in=${len(params)+1}")
-        params.append(payload.checkIn)
+        booking.check_in = payload.checkIn
     if payload.checkOut is not None:
-        sets.append(f"check_out=${len(params)+1}")
-        params.append(payload.checkOut)
+        booking.check_out = payload.checkOut
     if payload.status is not None:
-        sets.append(f"status=${len(params)+1}")
-        params.append(payload.status)
+        try:
+            booking.status = BookingStatus(payload.status.lower())
+        except ValueError:
+            pass  # Keep existing status if invalid
 
-    if not sets:
-        # Nothing to update; return current record
-        current = await _get_booking_or_404(booking_id)
-        return _row_to_booking(current)
-
-    # Append booking_id as final param
-    params.append(booking_id)
-    set_clause = ", ".join(sets)
-    sql = f"UPDATE bookings SET {set_clause} WHERE id=${len(params)}"
-    await execute(sql, *params)
-
-    updated = await _get_booking_or_404(booking_id)
-    return _row_to_booking(updated)
+    db.commit()
+    db.refresh(booking)
+    
+    return _orm_to_booking(booking)
 
 
 # PUBLIC_INTERFACE
@@ -268,10 +267,11 @@ async def update_booking_admin(
 )
 async def delete_booking_admin(
     booking_id: int = Path(..., ge=1),
-    _: Dict[str, Any] = Depends(_require_admin),
+    _: Dict[str, Any] = Depends(require_admin_scope),
+    db: Session = Depends(get_db),
 ) -> None:
     """Delete a booking by ID."""
-    # Ensure exists
-    _ = await _get_booking_or_404(booking_id)
-    await execute("DELETE FROM bookings WHERE id=$1", booking_id)
+    booking = _get_booking_or_404(db, booking_id)
+    db.delete(booking)
+    db.commit()
     return None
