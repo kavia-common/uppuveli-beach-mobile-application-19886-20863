@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 from src.api.config import get_settings
-from src.api.db import init_db_pool, close_db_pool
+from src.api.db import init_db_engine, dispose_db_engine
 
 # Initialize settings
 settings = get_settings()
@@ -39,17 +39,17 @@ app.add_middleware(
 )
 
 
-# Startup/shutdown hooks to manage database connection pool
+# Startup/shutdown hooks to manage database engine
 @app.on_event("startup")
 async def _on_startup() -> None:
-    """Initialize resources like the database connection pool."""
-    await init_db_pool()
+    """Initialize resources like the database engine."""
+    init_db_engine()
 
 
 @app.on_event("shutdown")
 async def _on_shutdown() -> None:
-    """Cleanly release resources such as the database pool."""
-    await close_db_pool()
+    """Cleanly release resources such as the database engine."""
+    dispose_db_engine()
 
 
 # Routers

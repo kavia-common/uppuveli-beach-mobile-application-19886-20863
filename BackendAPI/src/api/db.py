@@ -1,177 +1,318 @@
 """
-Database access layer for the BackendAPI.
+Database access layer for the BackendAPI using SQLAlchemy.
 
 This module provides:
-- An async connection pool to PostgreSQL using asyncpg
-- Safe, parameterized helper functions for common operations:
-  * fetch_one: return a single record or None
-  * fetch_all: return a list of records
-  * execute: run INSERT/UPDATE/DELETE and return command status/row count
-- Application lifecycle hooks to initialize and close the pool.
+- SQLAlchemy engine and session factory bound to DATABASE_URL
+- get_db() dependency for FastAPI routes to obtain database sessions
+- Application lifecycle hooks to initialize and dispose the engine
+- Base metadata for ORM models
 
 Configuration:
 - DATABASE_URL must be provided via environment variables handled by src.api.config.
 
 Usage:
-    from src.api.db import fetch_one, fetch_all, execute
-
-    user = await fetch_one("SELECT * FROM users WHERE id=$1", user_id)
-    rows = await fetch_all("SELECT * FROM bookings WHERE status=$1", "confirmed")
-    status = await execute("UPDATE users SET name=$1 WHERE id=$2", "Alice", 123)
+    from fastapi import Depends
+    from sqlalchemy.orm import Session
+    from src.api.db import get_db
+    
+    @app.get("/users")
+    def list_users(db: Session = Depends(get_db)):
+        return db.query(User).all()
 
 Note:
-- All query parameters MUST be passed as separate function args to ensure safe parameterization.
-- Do not use string interpolation for SQL parameters.
+- This is a synchronous SQLAlchemy setup with psycopg2 for simplicity
+- All sessions are automatically closed after request completion
+- Use Base.metadata.create_all(engine) to create tables if needed
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import os
+from typing import Generator
 
-import asyncpg
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from src.api.config import get_settings
 
-# Global pool reference. Access via getters to avoid direct manipulation.
-_pool: Optional[asyncpg.Pool] = None
+# SQLAlchemy Base for ORM models
+Base = declarative_base()
+
+# Global engine and session factory
+_engine = None
+_SessionLocal = None
 
 
-async def _create_pool(database_url: str) -> asyncpg.Pool:
-    """Create an asyncpg connection pool with sane defaults."""
-    # Configure min/max sizes for typical small deployment; tune via env as needed later
-    min_size = 1
-    max_size = 10
-    return await asyncpg.create_pool(
-        dsn=database_url,
-        min_size=min_size,
-        max_size=max_size,
-        command_timeout=60,  # seconds
-        # Prefer UTC timestamps; leave statement cache default on
+def _create_engine_from_url(database_url: str):
+    """Create SQLAlchemy engine with appropriate settings."""
+    # For PostgreSQL with psycopg2, use standard configuration
+    # Pool settings: pool_size=5, max_overflow=10 for typical deployment
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,  # verify connections before using
+        pool_size=5,
+        max_overflow=10,
+        echo=False,  # set to True for SQL debug logging
     )
 
 
 # PUBLIC_INTERFACE
-async def init_db_pool() -> None:
-    """Initialize the global database connection pool if DATABASE_URL is set.
-
+def init_db_engine() -> None:
+    """Initialize the global SQLAlchemy engine and session factory.
+    
     If DATABASE_URL is not configured, initialization is skipped to allow the
     app to start for non-DB endpoints (e.g., health checks).
     """
-    global _pool
-    if _pool is not None:
+    global _engine, _SessionLocal
+    
+    if _engine is not None:
         return
-
+    
     settings = get_settings()
     db_url = settings.database_url.strip()
-
+    
     if not db_url:
-        logging.warning("DATABASE_URL is not set; database pool will not be initialized.")
+        logging.warning("DATABASE_URL is not set; database engine will not be initialized.")
         return
-
+    
     try:
-        _pool = await _create_pool(db_url)
+        _engine = _create_engine_from_url(db_url)
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+        
         # Quick connectivity check
-        async with _pool.acquire() as conn:  # type: ignore[union-attr]
-            await conn.execute("SELECT 1;")
-        logging.info("Database pool initialized successfully.")
+        with _engine.connect() as conn:
+            conn.execute("SELECT 1")
+        
+        logging.info("Database engine initialized successfully.")
+        
+        # Optionally create tables if CREATE_TABLES env flag is set
+        if os.getenv("CREATE_TABLES", "").lower() in ("true", "1", "yes"):
+            logging.info("CREATE_TABLES flag detected; creating all tables...")
+            Base.metadata.create_all(bind=_engine)
+            logging.info("All tables created successfully.")
+            
     except Exception as exc:
-        # Do not crash the whole app; log error. DB-required routes should handle unavailability.
-        logging.error("Failed to initialize database pool: %s", exc)
-        # Keep _pool as None to indicate not available
-        _pool = None
+        logging.error("Failed to initialize database engine: %s", exc)
+        _engine = None
+        _SessionLocal = None
 
 
 # PUBLIC_INTERFACE
-async def close_db_pool() -> None:
-    """Close the global database pool if it exists."""
-    global _pool
-    if _pool is not None:
+def dispose_db_engine() -> None:
+    """Dispose the global SQLAlchemy engine and release resources."""
+    global _engine, _SessionLocal
+    
+    if _engine is not None:
         try:
-            await _pool.close()
-            logging.info("Database pool closed.")
+            _engine.dispose()
+            logging.info("Database engine disposed.")
         finally:
-            _pool = None
+            _engine = None
+            _SessionLocal = None
 
 
-def _ensure_pool_available() -> asyncpg.Pool:
-    """Internal helper to ensure pool is available or raise a clear error."""
-    if _pool is None:
+# PUBLIC_INTERFACE
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency that provides a database session.
+    
+    Yields a SQLAlchemy Session for use within a request context.
+    The session is automatically closed after the request completes.
+    
+    Usage:
+        @app.get("/items")
+        def read_items(db: Session = Depends(get_db)):
+            return db.query(Item).all()
+    """
+    if _SessionLocal is None:
         raise RuntimeError(
-            "Database is not initialized. Ensure DATABASE_URL is set and init_db_pool() has run."
+            "Database is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
         )
-    return _pool
+    
+    db = _SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# PUBLIC_INTERFACE
+def get_engine():
+    """Return the global SQLAlchemy engine instance.
+    
+    Useful for direct operations or migrations.
+    """
+    if _engine is None:
+        raise RuntimeError(
+            "Database engine is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
+        )
+    return _engine
+
+
+# ============================================================================
+# Backward Compatibility Layer for asyncpg-style helpers
+# ============================================================================
+# The following functions maintain compatibility with existing router code
+# that uses asyncpg-style fetch_one, fetch_all, execute patterns.
+# These wrap synchronous SQLAlchemy operations.
+
+from typing import Any, Dict, List, Optional, Tuple
+from sqlalchemy import text
 
 
 # PUBLIC_INTERFACE
 async def fetch_one(sql: str, *params: Any) -> Optional[Dict[str, Any]]:
     """Fetch a single record as a dict or return None if no row.
-
+    
+    Backward-compatible wrapper for asyncpg-style usage.
+    Note: This is now synchronous under the hood but wrapped as async for compatibility.
+    
     Parameters:
     - sql: The SQL query string with placeholders like $1, $2 (asyncpg style).
     - *params: The parameters to bind to the SQL query.
-
+    
     Returns:
     - A dictionary representing the row, or None.
     """
-    pool = _ensure_pool_available()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(sql, *params)
+    if _SessionLocal is None:
+        raise RuntimeError(
+            "Database is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
+        )
+    
+    # Convert asyncpg-style $1, $2 placeholders to SQLAlchemy :param_0, :param_1
+    converted_sql, param_dict = _convert_asyncpg_placeholders(sql, params)
+    
+    db = _SessionLocal()
+    try:
+        result = db.execute(text(converted_sql), param_dict)
+        row = result.fetchone()
         if row is None:
             return None
-        return dict(row)
+        return dict(row._mapping)
+    finally:
+        db.close()
 
 
 # PUBLIC_INTERFACE
 async def fetch_all(sql: str, *params: Any) -> List[Dict[str, Any]]:
     """Fetch all rows for a query as a list of dicts.
-
+    
+    Backward-compatible wrapper for asyncpg-style usage.
+    
     Parameters:
     - sql: The SQL query string with placeholders like $1, $2.
     - *params: The parameters to bind to the SQL query.
-
+    
     Returns:
     - List of dictionaries for each row.
     """
-    pool = _ensure_pool_available()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
-        return [dict(r) for r in rows]
+    if _SessionLocal is None:
+        raise RuntimeError(
+            "Database is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
+        )
+    
+    converted_sql, param_dict = _convert_asyncpg_placeholders(sql, params)
+    
+    db = _SessionLocal()
+    try:
+        result = db.execute(text(converted_sql), param_dict)
+        rows = result.fetchall()
+        return [dict(row._mapping) for row in rows]
+    finally:
+        db.close()
 
 
 # PUBLIC_INTERFACE
 async def execute(sql: str, *params: Any) -> str:
     """Execute a statement (INSERT/UPDATE/DELETE) and return the status string.
-
+    
+    Backward-compatible wrapper for asyncpg-style usage.
+    
     Parameters:
     - sql: The SQL statement with placeholders like $1, $2.
     - *params: The parameters to bind to the SQL statement.
-
+    
     Returns:
-    - The command status returned by asyncpg (e.g., 'UPDATE 1').
+    - The command status string (e.g., 'UPDATE 1').
     """
-    pool = _ensure_pool_available()
-    async with pool.acquire() as conn:
-        status = await conn.execute(sql, *params)
-        return status
+    if _SessionLocal is None:
+        raise RuntimeError(
+            "Database is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
+        )
+    
+    converted_sql, param_dict = _convert_asyncpg_placeholders(sql, params)
+    
+    db = _SessionLocal()
+    try:
+        result = db.execute(text(converted_sql), param_dict)
+        db.commit()
+        # Return a status string similar to asyncpg format
+        rowcount = result.rowcount
+        command = sql.strip().split()[0].upper()
+        return f"{command} {rowcount}"
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 # PUBLIC_INTERFACE
 async def execute_many(sql: str, param_sets: List[Tuple[Any, ...]]) -> List[str]:
-    """Execute a statement for multiple parameter sets in a single connection.
-
-    Useful for batch operations. All executions occur sequentially within a single
-    acquired connection but outside an explicit transaction. Wrap with your own
-    transaction if atomicity is required.
-
+    """Execute a statement for multiple parameter sets.
+    
+    Backward-compatible wrapper for asyncpg-style usage.
+    
     Parameters:
     - sql: The SQL statement with placeholders.
     - param_sets: A list of tuples representing parameter sets.
-
+    
     Returns:
     - List of status strings for each execution.
     """
-    pool = _ensure_pool_available()
+    if _SessionLocal is None:
+        raise RuntimeError(
+            "Database is not initialized. Ensure DATABASE_URL is set and init_db_engine() has run."
+        )
+    
     results: List[str] = []
-    async with pool.acquire() as conn:
+    db = _SessionLocal()
+    try:
         for params in param_sets:
-            results.append(await conn.execute(sql, *params))
-    return results
+            converted_sql, param_dict = _convert_asyncpg_placeholders(sql, params)
+            result = db.execute(text(converted_sql), param_dict)
+            command = sql.strip().split()[0].upper()
+            results.append(f"{command} {result.rowcount}")
+        db.commit()
+        return results
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _convert_asyncpg_placeholders(sql: str, params: tuple) -> tuple:
+    """Convert asyncpg-style $1, $2 placeholders to SQLAlchemy named parameters.
+    
+    Returns:
+    - tuple of (converted_sql, param_dict)
+    """
+    import re
+    
+    # Find all $1, $2, etc. placeholders
+    placeholders = re.findall(r'\$(\d+)', sql)
+    
+    if not placeholders:
+        # No placeholders, return as-is
+        return sql, {}
+    
+    # Build parameter dictionary
+    param_dict = {}
+    converted_sql = sql
+    
+    # Sort by number descending to avoid replacing $1 in $10
+    for idx in sorted(set(placeholders), key=int, reverse=True):
+        param_name = f"param_{int(idx)-1}"
+        param_dict[param_name] = params[int(idx)-1] if int(idx) <= len(params) else None
+        converted_sql = converted_sql.replace(f"${idx}", f":{param_name}")
+    
+    return converted_sql, param_dict
