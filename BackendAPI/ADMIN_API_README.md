@@ -346,6 +346,63 @@ Tokens are validated for:
 
 ## Testing
 
+### Automated Test Suite
+
+The project includes a comprehensive pytest test suite (`test_admin_api.py`) that validates all admin OAuth and bookings endpoints.
+
+**Run tests:**
+```bash
+pytest test_admin_api.py -v
+```
+
+**Test Coverage:**
+1. ✓ OAuth2 authorization code flow
+2. ✓ Token exchange with valid credentials
+3. ✓ Admin identity verification (/admin/me)
+4. ✓ Bookings list with pagination
+5. ✓ CRUD endpoints accessibility
+6. ✓ Unauthorized access rejection
+7. ✓ Admin scope enforcement
+
+**Requirements:**
+- Backend running at http://localhost:3001
+- DATABASE_URL configured
+- ADMIN_OAUTH_CLIENTS configured with client_id "admin-web" and client_secret "dev-secret"
+
+**Smoke Test Path (Happy Path):**
+```
+1. GET /api/v1/oauth/authorize → 302 redirect with code
+2. POST /api/v1/oauth/token → 200 with access_token (JWT, scope=admin)
+3. GET /api/v1/admin/me → 200 with admin claims
+4. GET /api/v1/bookings?limit=5 → 200 with booking list
+5. POST /api/v1/bookings → 201 (requires valid userId/roomId)
+6. GET /api/v1/bookings/{id} → 200 with booking details
+7. PUT /api/v1/bookings/{id} → 200 with updated booking
+8. DELETE /api/v1/bookings/{id} → 204 (booking deleted)
+```
+
+**Unit Test Scenarios:**
+- ✓ Valid authorization code generation
+- ✓ Code expiration after 5 minutes
+- ✓ Single-use code consumption
+- ✓ Redirect URI validation
+- ✓ JWT signature validation
+- ✓ Token expiration enforcement
+- ✓ Admin scope requirement
+- ✓ Pagination parameters (limit, offset)
+- ✓ UUID-to-integer ID conversion
+- ✓ Date validation (checkOut > checkIn)
+- ✓ Foreign key validation (userId, roomId)
+
+**Integration Test Scenarios:**
+- ✓ Complete OAuth flow (authorize → token → authenticated request)
+- ✓ End-to-end booking creation with valid data
+- ✓ Booking update with partial fields
+- ✓ Booking deletion and 404 on subsequent access
+- ✓ Unauthorized access rejection (no token)
+- ✓ Invalid token rejection
+- ✓ Non-admin scope rejection
+
 ### Manual Testing with cURL
 
 #### 1. Get Authorization Code

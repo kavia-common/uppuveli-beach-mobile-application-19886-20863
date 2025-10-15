@@ -16,15 +16,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import jwt  # PyJWT
+import bcrypt
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import HTTPException, status, Depends
 
-from passlib.context import CryptContext
-
 from src.api.config import get_settings
-
-# Configure password hashing context (bcrypt)
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 bearer token dependency to protect future routes
 # PUBLIC_INTERFACE
@@ -37,15 +33,24 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 # PUBLIC_INTERFACE
 def hash_password(plain_password: str) -> str:
-    """Hash a plaintext password using bcrypt via passlib."""
-    return _pwd_context.hash(plain_password)
+    """Hash a plaintext password using bcrypt.
+    
+    Note: bcrypt has a 72-byte limit. Passwords are automatically truncated if needed.
+    """
+    # Ensure password is properly encoded and truncated to bcrypt's 72-byte limit
+    password_bytes = plain_password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 # PUBLIC_INTERFACE
 def verify_password(plain_password: str, password_hash: str) -> bool:
     """Verify a plaintext password against a stored bcrypt hash."""
     try:
-        return _pwd_context.verify(plain_password, password_hash)
+        password_bytes = plain_password.encode('utf-8')[:72]
+        hash_bytes = password_hash.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hash_bytes)
     except Exception:
         return False
 

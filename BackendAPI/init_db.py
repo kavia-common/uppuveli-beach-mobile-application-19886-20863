@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def main():
     from src.api.config import get_settings
     from src.api.db import Base, _create_engine_from_url
+    from sqlalchemy import text
     
     settings = get_settings()
     
@@ -32,7 +33,7 @@ def main():
         
         # Test connection
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         logger.info("✓ Database connection successful")
         
         # Create all tables
