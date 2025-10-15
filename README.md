@@ -49,3 +49,12 @@ OpenAPI
 - Generate OpenAPI schema file:
   cd BackendAPI && python -m src.api.generate_openapi
   Output will be at BackendAPI/interfaces/openapi.json
+
+Mobile API endpoints (JWT protected)
+- GET /api/v1/rooms
+- POST /api/v1/bookings
+- POST /api/v1/payments
+- GET /api/v1/loyalty
+- POST /api/v1/referrals
+- GET /api/v1/notifications
+- POST /api/v1/chat

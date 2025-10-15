@@ -54,17 +54,20 @@ async def _on_shutdown() -> None:
 # Routers
 from src.api.routers import auth  # type: ignore
 from src.api.routers import admin_oauth  # type: ignore
+from src.api.routers import rooms, bookings, payments, loyalty, referrals, notifications, chat  # type: ignore
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 # Admin OAuth2 mock flow (authorization, token) and admin profile endpoint
 app.include_router(admin_oauth.router, prefix="/api/v1", tags=["auth"])
-# Future routers will be included similarly:
-# from src.api.routers import bookings, payments, loyalty, notifications, chat
-# app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["bookings"])
-# app.include_router(payments.router, prefix="/api/v1/payments", tags=["payments"])
-# app.include_router(loyalty.router, prefix="/api/v1/loyalty", tags=["loyalty"])
-# app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
-# app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
+
+# Mobile endpoints
+app.include_router(rooms.router, prefix="/api/v1/rooms", tags=["bookings"])
+app.include_router(bookings.router, prefix="/api/v1/bookings", tags=["bookings"])
+app.include_router(payments.router, prefix="/api/v1/payments", tags=["payments"])
+app.include_router(loyalty.router, prefix="/api/v1/loyalty", tags=["loyalty"])
+app.include_router(referrals.router, prefix="/api/v1/referrals", tags=["loyalty"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 
 
 # PUBLIC_INTERFACE
