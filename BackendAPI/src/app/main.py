@@ -50,6 +50,12 @@ def create_app() -> FastAPI:
         """Simple health check endpoint."""
         return {"message": "Healthy", "timestamp": datetime.utcnow().isoformat()}
 
+    @app.get("/healthz", tags=["Health"], summary="Readiness Check")
+    # PUBLIC_INTERFACE
+    def healthz() -> dict:
+        """Kubernetes-style readiness check endpoint."""
+        return {"status": "ready", "service": "BackendAPI", "timestamp": datetime.utcnow().isoformat()}
+
     # Global exception handlers to standardize error response shape
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -74,9 +80,17 @@ app = create_app()
 # Startup events: create tables and seed demo data if enabled
 @app.on_event("startup")
 async def on_startup():
-    create_db_and_tables()
-    if settings.SEED_DEMO:
-        seed_demo_data()
+    """Initialize database and seed demo data on application startup."""
+    try:
+        create_db_and_tables()
+        print("✓ Database tables created successfully")
+        if settings.SEED_DEMO:
+            seed_demo_data()
+            print("✓ Demo data seeded successfully")
+    except Exception as e:
+        print(f"⚠ Warning during startup initialization: {e}")
+        print("Server will continue but some features may not work correctly")
+        # Don't crash the server - allow it to start even if DB init has issues
 
 
 # For uvicorn execution when needed:

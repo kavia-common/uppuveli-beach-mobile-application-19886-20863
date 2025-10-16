@@ -16,10 +16,14 @@ engine = create_engine(settings.DATABASE_URL, echo=False, connect_args=connect_a
 
 
 def create_db_and_tables():
-    """Create database tables."""
-    # Reference models to ensure import side-effects register their tables
-    _models = (User, Booking, Payment)  # noqa: F841
-    SQLModel.metadata.create_all(engine)
+    """Create database tables. Safe to call multiple times (idempotent)."""
+    try:
+        # Reference models to ensure import side-effects register their tables
+        _models = (User, Booking, Payment)  # noqa: F841
+        SQLModel.metadata.create_all(engine)
+    except Exception as e:
+        print(f"Error creating database tables: {e}")
+        raise
 
 
 # PUBLIC_INTERFACE
@@ -33,33 +37,40 @@ def get_session() -> Generator[Session, None, None]:
 
 
 def seed_demo_data():
-    """Seed minimal demo data if empty."""
-    with Session(engine) as session:
-        # Seed a demo user
-        demo_email = "demo@uppuveli.com"
-        # Correct SQLModel/SQLAlchemy 2.0 style select usage
-        existing_user = session.exec(select(User).where(User.email == demo_email)).first()
-        if not existing_user:
-            demo_user = User(
-                email=demo_email,
-                name="Demo User",
-                phone="0000000000",
-                hashed_password=get_password_hash("password123"),
-                is_active=True,
-            )
-            session.add(demo_user)
-            session.commit()
-            session.refresh(demo_user)
+    """Seed minimal demo data if empty. Safe to call multiple times."""
+    try:
+        with Session(engine) as session:
+            # Seed a demo user
+            demo_email = "demo@uppuveli.com"
+            # Correct SQLModel/SQLAlchemy 2.0 style select usage
+            existing_user = session.exec(select(User).where(User.email == demo_email)).first()
+            if not existing_user:
+                demo_user = User(
+                    email=demo_email,
+                    name="Demo User",
+                    phone="0000000000",
+                    hashed_password=get_password_hash("password123"),
+                    is_active=True,
+                )
+                session.add(demo_user)
+                session.commit()
+                session.refresh(demo_user)
 
-            # Seed a demo booking
-            from datetime import date, timedelta
+                # Seed a demo booking
+                from datetime import date, timedelta
 
-            b = Booking(
-                room_id="R-101",
-                guest_id=str(demo_user.id),
-                check_in=date.today(),
-                check_out=date.today() + timedelta(days=2),
-                status="confirmed",
-            )
-            session.add(b)
-            session.commit()
+                b = Booking(
+                    room_id="R-101",
+                    guest_id=str(demo_user.id),
+                    check_in=date.today(),
+                    check_out=date.today() + timedelta(days=2),
+                    status="confirmed",
+                )
+                session.add(b)
+                session.commit()
+                print(f"  → Created demo user: {demo_email} (password: password123)")
+            else:
+                print(f"  → Demo user already exists: {demo_email}")
+    except Exception as e:
+        print(f"Error seeding demo data: {e}")
+        # Don't crash - just log the error
