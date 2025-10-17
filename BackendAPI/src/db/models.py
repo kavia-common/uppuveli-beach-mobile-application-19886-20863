@@ -97,7 +97,10 @@ class Booking(Base, TimestampMixin):
     __tablename__ = "bookings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="booked", nullable=False)
     check_in: Mapped[date] = mapped_column(Date, nullable=False)

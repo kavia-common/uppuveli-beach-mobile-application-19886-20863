@@ -6,7 +6,7 @@ This service powers the Uppuveli Beach platform backend.
 
 1) Create .env
 - cp .env.example .env
-- Update DATABASE_URL and secrets
+- Update DATABASE_URL and secrets (JWT_SECRET, ACCESS_TOKEN_EXPIRE_MINUTES, etc.)
 
 2) Install dependencies
 - pip install -r requirements.txt
@@ -19,6 +19,61 @@ This service powers the Uppuveli Beach platform backend.
 
 5) Run dev server
 - uvicorn src.api.main:app --reload
+
+6) Generate OpenAPI JSON
+- python -m src.api.generate_openapi
+- The file is written to interfaces/openapi.json
+
+## API Overview (prefix /api/v1)
+
+- Health:
+  - GET / -> {"message": "Healthy"}
+
+- Auth:
+  - POST /api/v1/auth/register -> Create a user (201)
+  - POST /api/v1/auth/login -> JWT and user data (200)
+  - POST /api/v1/auth/token -> OAuth2 password token (200), for Swagger Authorize
+
+- Rooms (auth required):
+  - GET /api/v1/rooms -> List rooms (200)
+
+- Bookings (auth required):
+  - POST /api/v1/bookings -> Create a booking (201)
+
+- Payments (auth required, stubbed):
+  - POST /api/v1/payments -> Process payment and persist Payment (201)
+
+- Loyalty (auth required):
+  - GET /api/v1/loyalty -> Current user's loyalty and history (200)
+
+- Referrals (auth required):
+  - POST /api/v1/referrals -> Redeem referral code (200)
+
+- Notifications (auth required):
+  - GET /api/v1/notifications -> List user notifications (200)
+
+- Chat (auth required):
+  - POST /api/v1/chat -> Echo message and persist chat entry (200)
+
+- Admin (scaffold):
+  - Use admin JWTs with "admin": true claim (future admin endpoints will require it).
+
+Security:
+- OAuth2 password flow supported via /api/v1/auth/token
+- Bearer JWT required for protected endpoints
+
+CORS:
+- Allowed origins include http://localhost:3000 and common mobile dev hosts.
+
+## Running tests
+
+- Ensure DATABASE_URL points to a reachable Postgres with the schema migrated.
+- Run: pytest
+
+Tests included:
+- tests/test_health.py
+- tests/test_auth.py
+- tests/test_rooms.py
 
 ## Common commands
 

@@ -5,46 +5,21 @@ This monorepo includes multiple containers:
 - BackendAPI (FastAPI)
 - WebAdminPanel (React)
 
-This document includes BackendAPI database setup instructions.
+This document includes BackendAPI setup and pointers.
 
-## BackendAPI - Database Setup (PostgreSQL + SQLAlchemy + Alembic)
+## BackendAPI
 
-1) Create and configure a .env file
-- Copy BackendAPI/.env.example to BackendAPI/.env
-- Update DATABASE_URL and secrets as appropriate
+- API base path: /api/v1
+- Health: GET /
+- See BackendAPI/README.md for detailed run instructions and endpoint descriptions.
+- Generate OpenAPI: python -m src.api.generate_openapi -> BackendAPI/interfaces/openapi.json
 
-Env variables required:
-- DATABASE_URL
-- JWT_SECRET
-- JWT_ALGORITHM
-- ACCESS_TOKEN_EXPIRE_MINUTES
-- OAUTH_CLIENT_ID
-- OAUTH_CLIENT_SECRET
-- STRIPE_API_KEY
-- PAYPAL_CLIENT_ID
-- PAYPAL_CLIENT_SECRET
-- FCM_SERVER_KEY
-
-2) Install dependencies (within BackendAPI directory)
-- pip install -r requirements.txt
-
-3) Initialize the database via Alembic
-- Ensure your DATABASE_URL points to a reachable Postgres instance
-- Run:
-  alembic -c alembic.ini upgrade head
-
-4) Seed initial data
-- Run:
-  python -m src.db.seed
-This will create one admin user and a few sample rooms.
-
-5) Run the API
-- uvicorn src.api.main:app --reload
-
-Notes:
-- The application uses synchronous SQLAlchemy with psycopg2.
-- Migrations manage schema. Do not create tables at startup.
-- DB session dependency is available as src.db.session.get_db for route handlers.
+Database setup summary (PostgreSQL + SQLAlchemy + Alembic):
+1) Copy BackendAPI/.env.example to BackendAPI/.env and fill DATABASE_URL and JWT settings
+2) pip install -r BackendAPI/requirements.txt
+3) Run migrations: (cd BackendAPI && alembic -c alembic.ini upgrade head)
+4) Seed sample data: (cd BackendAPI && python -m src.db.seed)
+5) Run server: (cd BackendAPI && uvicorn src.api.main:app --reload)
 
 Project structure (BackendAPI relevant):
 - src/db/models.py     -> SQLAlchemy models
@@ -52,6 +27,8 @@ Project structure (BackendAPI relevant):
 - src/db/seed.py       -> Seed script
 - alembic/             -> Migrations
 - alembic.ini          -> Alembic config
-- src/api/main.py      -> FastAPI app
-- src/api/generate_openapi.py -> Script to export OpenAPI schema to interfaces/openapi.json
+- src/api/main.py      -> FastAPI app and routers
+- src/api/routes/      -> Endpoint implementations
+- src/core/security.py -> JWT and password hashing
+- src/api/generate_openapi.py -> Exports OpenAPI schema
 - interfaces/openapi.json     -> Generated API spec (run `make openapi` to refresh)
