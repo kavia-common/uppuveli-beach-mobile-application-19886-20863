@@ -48,16 +48,19 @@ def create_app() -> FastAPI:
     settings = get_settings()
     # Access a field to avoid unused-variable lint while ensuring settings are loaded
     _ = settings.JWT_ALGORITHM
-    # CORS allow localhost and dev hosts
+
+    # CORS allow localhost and dev hosts (explicit; do not use '*' in production)
     allowed_origins = [
         # Web Admin Panel (React dev server)
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        # Vite common port (if admin uses Vite)
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
         # Backend local direct calls (some tools)
         "http://localhost",
         "http://127.0.0.1",
-        # Android emulator loopback to host machine
-        "http://10.0.2.2",
+        # Android emulator loopback to host machine (optional for web testing on emulator)
         "http://10.0.2.2:3000",
         "http://10.0.2.2:3001",
         # Common alternate ports for backend during dev
@@ -94,6 +97,19 @@ def create_app() -> FastAPI:
     app.include_router(referrals_router, prefix=api_prefix)
     app.include_router(notifications_router, prefix=api_prefix)
     app.include_router(chat_router, prefix=api_prefix)
+
+    @app.get(
+        f"{api_prefix}/health",
+        summary="API health",
+        description=(
+            "Health endpoint under the versioned API base path (/api/v1). "
+            "Returns {'status':'ok'}."
+        ),
+        tags=["Health"],
+    )
+    def api_health() -> dict[str, str]:
+        """Return versioned API health status for clients behind a base path."""
+        return {"status": "ok"}
 
     # override openapi to ensure stable schema file generation
     def custom_openapi():

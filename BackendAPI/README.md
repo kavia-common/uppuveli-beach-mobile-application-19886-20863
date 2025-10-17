@@ -46,20 +46,35 @@ Security notes:
 - The file is written to interfaces/openapi.json
 - Alternatively: make openapi
 
-CORS:
-- Ensure the backend allows development origins:
-  - http://localhost:3000 (WebAdminPanel)
-  - http://localhost:3001 (direct calls)
-  - http://10.0.2.2 and http://10.0.2.2:3001 (Android emulator to host)
+## CORS configuration (development)
 
-Health:
-- GET / -> {"message": "Healthy"}
-- Use this to verify the service is running before mobile/web integration
+CORS is explicitly configured to allow common development hosts. Do NOT broaden to "*" in production.
+
+Allowed origins include:
+- http://localhost:3000 (WebAdminPanel React dev server)
+- http://127.0.0.1:3000
+- http://localhost:5173 (Vite dev server, if used)
+- http://127.0.0.1:5173
+- http://localhost:3001 (alternate backend/tools)
+- http://127.0.0.1:3001
+- http://10.0.2.2:3000 (Android emulator to host)
+- http://10.0.2.2:3001 (Android emulator to host)
+
+Credentials, methods, and headers:
+- allow_credentials=True
+- allow_methods=["*"]
+- allow_headers=["*"]
+
+## Health
+
+- GET / -> {"message": "Healthy"} (root liveness)
+- GET /api/v1/health -> {"status": "ok"} (versioned API health)
+- Use these to verify the service is running before mobile/web integration.
 
 ## API Overview (prefix /api/v1)
 
 - Health:
-  - GET / -> {"message": "Healthy"}
+  - GET /api/v1/health -> {"status": "ok"}
 
 - Auth:
   - POST /api/v1/auth/register -> Create a user (201)
@@ -94,8 +109,15 @@ Security:
 - OAuth2 password flow supported via /api/v1/auth/token
 - Bearer JWT required for protected endpoints
 
-CORS:
-- Allowed origins include http://localhost:3000 and common mobile dev hosts.
+## WebAdminPanel integration
+
+- Set the frontend base URL to include the versioned path:
+  REACT_APP_API_BASE_URL=http://localhost:3001/api/v1
+
+- With this value, requests like:
+  - POST ${REACT_APP_API_BASE_URL}/auth/login
+  - POST ${REACT_APP_API_BASE_URL}/auth/token
+  will target the backend correctly and pass CORS in development.
 
 ## Running tests
 
