@@ -9,14 +9,13 @@ Usage:
     python -m src.db.diagnostics
 """
 
-import os
 from dotenv import load_dotenv
 from sqlalchemy import text
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from alembic.runtime.environment import EnvironmentContext
 
-from .session import init_engine_and_session, _get_database_url  # type: ignore
+from .session import init_engine_and_session
 from .session import SessionLocal
 
 load_dotenv()

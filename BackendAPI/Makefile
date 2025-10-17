@@ -1,6 +1,6 @@
 # Developer convenience targets for BackendAPI
 
-.PHONY: help install run dev openapi migrate-up migrate-down migrate-rev seed lint fmt diag
+.PHONY: help install run dev openapi migrate-up migrate-down migrate-rev seed lint fmt diag create-admin
 
 help:
 	@echo "BackendAPI Makefile targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  migrate-down   Downgrade alembic by one revision"
 	@echo "  migrate-rev    Create new alembic revision with message: make migrate-rev m='message'"
 	@echo "  seed           Seed the database with initial data"
+	@echo "  create-admin   Create or update an admin user: make create-admin EMAIL=... PASSWORD=... [NAME=...] [SUPERUSER=1] [PRINT_TOKEN=1]"
 	@echo "  lint           Run flake8"
 	@echo "  fmt            Run auto-format with black (if installed)"
 
@@ -51,3 +52,14 @@ fmt:
 
 diag:
 	python -m src.db.diagnostics
+
+# Create or update an admin user (idempotent)
+# Usage:
+#   make create-admin EMAIL=admin@example.com PASSWORD='StrongPass123!' [NAME='Admin'] [SUPERUSER=1] [PRINT_TOKEN=1]
+create-admin:
+	@if [ -z "$(EMAIL)" ] || [ -z "$(PASSWORD)" ]; then echo "Usage: make create-admin EMAIL=... PASSWORD=... [NAME=...] [SUPERUSER=1] [PRINT_TOKEN=1]"; exit 1; fi; \
+	PARGS="--email $(EMAIL) --password '$(PASSWORD)'"; \
+	if [ -n "$(NAME)" ]; then PARGS="$$PARGS --name '$(NAME)'"; fi; \
+	if [ "$(SUPERUSER)" = "1" ]; then PARGS="$$PARGS --superuser"; fi; \
+	if [ "$(PRINT_TOKEN)" = "1" ]; then PARGS="$$PARGS --print-token"; fi; \
+	python -m src.scripts.create_admin $$PARGS

@@ -46,6 +46,8 @@ def create_app() -> FastAPI:
     )
 
     settings = get_settings()
+    # Access a field to avoid unused-variable lint while ensuring settings are loaded
+    _ = settings.JWT_ALGORITHM
     # CORS allow localhost and dev hosts
     allowed_origins = [
         # Web Admin Panel (React dev server)

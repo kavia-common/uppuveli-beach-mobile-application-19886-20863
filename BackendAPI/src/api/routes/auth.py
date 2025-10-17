@@ -43,9 +43,15 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)) -> An
     Returns:
         UserOut: created user.
     """
-    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+    existing = (
+        db.execute(select(User).where(User.email == payload.email))
+        .scalar_one_or_none()
+    )
     if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
     user = User(
         email=payload.email,
         password_hash=hash_password(payload.password),

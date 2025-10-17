@@ -20,6 +20,27 @@ This service powers the Uppuveli Beach platform backend.
 5) Run dev server
 - uvicorn src.api.main:app --reload
 
+### Create an Admin User (CLI)
+Use the management script to create or update an admin user (idempotent). It reads DATABASE_URL and JWT settings from BackendAPI/.env.
+
+Options:
+- --email: admin email (required)
+- --password: plain password (required)
+- --name: display name (optional, default "Administrator")
+- --superuser: mark as superuser (optional)
+- --print-token: also print a JWT containing {"admin": true} (optional)
+
+Run directly:
+- python -m src.scripts.create_admin --email admin@uppuveli.com --password 'CHANGEME' --superuser --print-token
+
+Or via Makefile:
+- make create-admin EMAIL=admin@uppuveli.com PASSWORD='CHANGEME' SUPERUSER=1 PRINT_TOKEN=1
+
+Security notes:
+- Do not commit credentials to the repo.
+- Ensure BackendAPI/.env contains DATABASE_URL and JWT_SECRET.
+- The script is safe to run multiple times; it will update the password if the admin already exists.
+
 6) Generate OpenAPI JSON
 - python -m src.api.generate_openapi
 - The file is written to interfaces/openapi.json
