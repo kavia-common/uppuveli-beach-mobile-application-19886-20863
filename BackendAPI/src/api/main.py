@@ -48,12 +48,19 @@ def create_app() -> FastAPI:
     settings = get_settings()
     # CORS allow localhost and dev hosts
     allowed_origins = [
-        "http://localhost",
+        # Web Admin Panel (React dev server)
         "http://localhost:3000",
-        "http://127.0.0.1",
         "http://127.0.0.1:3000",
-        "http://10.0.2.2:3000",  # Android emulator
+        # Backend local direct calls (some tools)
+        "http://localhost",
+        "http://127.0.0.1",
+        # Android emulator loopback to host machine
         "http://10.0.2.2",
+        "http://10.0.2.2:3000",
+        "http://10.0.2.2:3001",
+        # Common alternate ports for backend during dev
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ]
 
     app.add_middleware(

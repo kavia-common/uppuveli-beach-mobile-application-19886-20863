@@ -13,6 +13,18 @@ This document includes BackendAPI setup and pointers.
 - Health: GET /
 - See BackendAPI/README.md for detailed run instructions and endpoint descriptions.
 - Generate OpenAPI: python -m src.api.generate_openapi -> BackendAPI/interfaces/openapi.json
+  - Or run: (cd BackendAPI && make openapi) if Makefile available
+
+Cross-container integration checklist:
+- BackendAPI CORS allows:
+  - http://localhost:3000 (WebAdminPanel)
+  - http://localhost:3001 (tools/local calls)
+  - http://10.0.2.2 and http://10.0.2.2:3001 (Android emulator)
+- Base URLs include /api/v1:
+  - MobileApplication: API_BASE_URL in MobileApplication/.env (e.g., http://10.0.2.2:3001/api/v1)
+  - WebAdminPanel: REACT_APP_API_BASE_URL in WebAdminPanel/.env (e.g., http://localhost:3001/api/v1)
+- Health endpoint:
+  - curl http://localhost:3001/ -> {"message":"Healthy"}
 
 Database setup summary (PostgreSQL + SQLAlchemy + Alembic):
 1) Copy BackendAPI/.env.example to BackendAPI/.env and fill DATABASE_URL and JWT settings

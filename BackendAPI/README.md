@@ -23,6 +23,17 @@ This service powers the Uppuveli Beach platform backend.
 6) Generate OpenAPI JSON
 - python -m src.api.generate_openapi
 - The file is written to interfaces/openapi.json
+- Alternatively: make openapi
+
+CORS:
+- Ensure the backend allows development origins:
+  - http://localhost:3000 (WebAdminPanel)
+  - http://localhost:3001 (direct calls)
+  - http://10.0.2.2 and http://10.0.2.2:3001 (Android emulator to host)
+
+Health:
+- GET / -> {"message": "Healthy"}
+- Use this to verify the service is running before mobile/web integration
 
 ## API Overview (prefix /api/v1)
 
